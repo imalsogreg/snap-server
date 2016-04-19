@@ -94,7 +94,7 @@ simpleHttpServe defaultServerConfig cmdline handler = do
             startBackend vlog scfg name secure start
         -- TODO: throw a proper exception here.
         when (null backends) $ fail "No backends configured."
-        let shandler = snapToServerHandler handler
+        let shandler = snapToServerHandler (handler <|> err404Handler cmdline)
         rawHttpServe shandler backends
   where
 {-# INLINE simpleHttpServe #-}

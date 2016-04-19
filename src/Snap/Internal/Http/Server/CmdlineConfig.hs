@@ -226,6 +226,7 @@ data CmdlineConfig m a = CmdlineConfig
     , unixaccessmode :: Maybe Int
     , compression    :: Maybe Bool
     , verbose        :: Maybe Bool
+    , err404Handler  :: Maybe (m ())
     , errorHandler   :: Maybe (SomeException -> m ())
     , defaultTimeout :: Maybe Int
     , other          :: Maybe a
@@ -317,6 +318,7 @@ instance Monoid (CmdlineConfig m a) where
         , unixaccessmode = Nothing
         , compression    = Nothing
         , verbose        = Nothing
+        , err404Handler  = Nothing
         , errorHandler   = Nothing
         , defaultTimeout = Nothing
         , other          = Nothing
@@ -340,6 +342,7 @@ instance Monoid (CmdlineConfig m a) where
         , unixaccessmode = ov unixaccessmode
         , compression    = ov compression
         , verbose        = ov verbose
+        , err404Handler  = ov err404Handler
         , errorHandler   = ov errorHandler
         , defaultTimeout = ov defaultTimeout
         , other          = ov other
@@ -361,6 +364,7 @@ defaultCmdlineConfig = mempty
     , locale         = Just "en_US"
     , compression    = Just True
     , verbose        = Just True
+    , err404Handler  = Just default404Handler
     , errorHandler   = Just defaultErrorHandler
     , bind           = Just "0.0.0.0"
     , sslbind        = Nothing
@@ -447,6 +451,10 @@ getCompression = compression
 getVerbose        :: CmdlineConfig m a -> Maybe Bool
 getVerbose = verbose
 
+-- | A MonadSnap action to handle 404 errors
+getErrorHandler   :: CmdlineConfig m a -> Maybe (m ())
+getErrorHandler = err404Handler
+
 -- | A MonadSnap action to handle 500 errors
 getErrorHandler   :: CmdlineConfig m a -> Maybe (SomeException -> m ())
 getErrorHandler = errorHandler
@@ -515,6 +523,9 @@ setCompression x c = c { compression = Just x }
 
 setVerbose        :: Bool                    -> CmdlineConfig m a -> CmdlineConfig m a
 setVerbose x c = c { verbose = Just x }
+
+setErr404Handler   :: (SomeException -> m ()) -> CmdlineConfig m a -> CmdlineConfig m a
+setErr404Handler x c = c { err404Handler = Just x }
 
 setErrorHandler   :: (SomeException -> m ()) -> CmdlineConfig m a -> CmdlineConfig m a
 setErrorHandler x c = c { errorHandler = Just x }
@@ -702,6 +713,36 @@ optDescrs defaults =
 
     defaultO :: (Show b) => (CmdlineConfig m a -> Maybe b) -> String
     defaultO f     = maybe ", default off" ((", default " ++) . show) $ f conf
+
+
+------------------------------------------------------------------------------
+default404Handler :: MonadSnap m => m ()
+default404Handler =
+  clearContentLength                $
+  setResponseStatus 404 "Not Found" $
+  setResponseBody enum404           $
+  emptyResponse
+
+  where
+
+    --------------------------------------------------------------------------
+    enum404 out = do
+        is <- Streams.fromList html
+        Streams.connect is out
+        return out
+
+    --------------------------------------------------------------------------
+    html = map byteString [ "<!DOCTYPE html>\n"
+                          , "<html>\n"
+                          , "<head>\n"
+                          , "<title>Not found</title>\n"
+                          , "</head>\n"
+                          , "<body>\n"
+                          , "<code>No handler accepted \""
+                          , rqURI req
+                          , "\"</code>\n</body></html>"
+                          ]
+
 
 
 ------------------------------------------------------------------------------
