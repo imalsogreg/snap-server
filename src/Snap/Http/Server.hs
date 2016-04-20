@@ -20,6 +20,7 @@ module Snap.Http.Server
   ) where
 
 ------------------------------------------------------------------------------
+import           Control.Applicative                     ((<|>))
 import           Control.Concurrent                      (killThread, newEmptyMVar, putMVar, readMVar)
 import           Control.Concurrent.Extended             (forkIOLabeledWithUnmaskBs)
 import           Control.Exception                       (finally)
@@ -27,7 +28,7 @@ import qualified Control.Exception.Lifted                as E
 import           Control.Monad                           (forM, when)
 import           Data.ByteString.Char8                   (ByteString)
 import qualified Data.ByteString.Char8                   as S
-import           Data.Maybe                              (fromJust)
+import           Data.Maybe                              (fromJust, fromMaybe)
 import           Data.Version                            (showVersion)
 import           Prelude                                 (Bool (..), IO, Monad (..), String, flip, id, mapM_, maybe, null, ($), ($!), (++), (.))
 #ifndef PORTABLE
@@ -40,7 +41,7 @@ import           Snap.Http.Server.CmdlineConfig          (listeners, toServerCon
 import           Snap.Http.Server.Config
 import           Snap.Internal.Http.Server.Cleanup       (Cleanup)
 import qualified Snap.Internal.Http.Server.Cleanup       as Cleanup
-import           Snap.Internal.Http.Server.CmdlineConfig (CmdlineConfig, ProxyType (..), cmdlineConfig, defaultCmdlineConfig, getCompression, getErrorHandler, getLocale, getProxyType)
+import           Snap.Internal.Http.Server.CmdlineConfig (CmdlineConfig, ProxyType (..), cmdlineConfig, defaultCmdlineConfig, getCompression, getErr404Handler, getErrorHandler, getLocale, getProxyType)
 import           Snap.Internal.Http.Server.Session       (httpAcceptLoop, snapToServerHandler)
 import           Snap.Internal.Http.Server.Types         (Backend (..))
 import           Snap.Util.GZip                          (withCompression)
@@ -94,13 +95,12 @@ simpleHttpServe defaultServerConfig cmdline handler = do
             startBackend vlog scfg name secure start
         -- TODO: throw a proper exception here.
         when (null backends) $ fail "No backends configured."
-        let shandler = snapToServerHandler (handler <|> err404Handler cmdline)
+        let shandler = snapToServerHandler (handler <|> h404)
+            h404 = fromMaybe (fail "Missing 404 handler") (getErr404Handler cmdline)
         rawHttpServe shandler backends
   where
 {-# INLINE simpleHttpServe #-}
 
-
-------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------------
 -- | Starts serving HTTP requests using the given handler, with settings from

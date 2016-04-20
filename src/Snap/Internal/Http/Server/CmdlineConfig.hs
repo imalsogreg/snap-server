@@ -27,6 +27,7 @@ module Snap.Internal.Http.Server.CmdlineConfig
   , getBind
   , getCompression
   , getDefaultTimeout
+  , getErr404Handler
   , getErrorHandler
   , getErrorLog
   , getHostname
@@ -49,6 +50,7 @@ module Snap.Internal.Http.Server.CmdlineConfig
   , setBind
   , setCompression
   , setDefaultTimeout
+  , setErr404Handler
   , setErrorHandler
   , setErrorLog
   , setHostname
@@ -115,7 +117,7 @@ import           System.IO                       (hPutStrLn, stderr)
 import           Data.ByteString.Builder         (Builder, byteString, stringUtf8, toLazyByteString)
 import qualified System.IO.Streams               as Streams
 ------------------------------------------------------------------------------
-import           Snap.Core                       (MonadSnap, Request (rqClientAddr, rqClientPort), emptyResponse, finishWith, getRequest, logError, setContentLength, setContentType, setResponseBody, setResponseStatus)
+import           Snap.Core                       (Snap, MonadSnap, Request (rqClientAddr, rqClientPort), clearContentLength, emptyResponse, finishWith, getRequest, logError, putResponse, rqURI, setContentLength, setContentType, setResponseBody, setResponseStatus)
 import           Snap.Internal.Debug             (debug)
 import           Snap.Internal.Http.Server.Types (AccessLogFunc)
 
@@ -226,7 +228,7 @@ data CmdlineConfig m a = CmdlineConfig
     , unixaccessmode :: Maybe Int
     , compression    :: Maybe Bool
     , verbose        :: Maybe Bool
-    , err404Handler  :: Maybe (m ())
+    , err404Handler  :: Maybe (Snap ())
     , errorHandler   :: Maybe (SomeException -> m ())
     , defaultTimeout :: Maybe Int
     , other          :: Maybe a
@@ -452,8 +454,8 @@ getVerbose        :: CmdlineConfig m a -> Maybe Bool
 getVerbose = verbose
 
 -- | A MonadSnap action to handle 404 errors
-getErrorHandler   :: CmdlineConfig m a -> Maybe (m ())
-getErrorHandler = err404Handler
+getErr404Handler   :: CmdlineConfig m a -> Maybe (Snap ())
+getErr404Handler = err404Handler
 
 -- | A MonadSnap action to handle 500 errors
 getErrorHandler   :: CmdlineConfig m a -> Maybe (SomeException -> m ())
@@ -524,7 +526,7 @@ setCompression x c = c { compression = Just x }
 setVerbose        :: Bool                    -> CmdlineConfig m a -> CmdlineConfig m a
 setVerbose x c = c { verbose = Just x }
 
-setErr404Handler   :: (SomeException -> m ()) -> CmdlineConfig m a -> CmdlineConfig m a
+setErr404Handler   :: Snap () -> CmdlineConfig m a -> CmdlineConfig m a
 setErr404Handler x c = c { err404Handler = Just x }
 
 setErrorHandler   :: (SomeException -> m ()) -> CmdlineConfig m a -> CmdlineConfig m a
@@ -716,32 +718,32 @@ optDescrs defaults =
 
 
 ------------------------------------------------------------------------------
-default404Handler :: MonadSnap m => m ()
-default404Handler =
-  clearContentLength                $
-  setResponseStatus 404 "Not Found" $
-  setResponseBody enum404           $
-  emptyResponse
+default404Handler :: Snap ()
+default404Handler = do
+  req <- getRequest
+  putResponse $
+    clearContentLength                $
+    setResponseStatus 404 "Not Found" $
+    setResponseBody (enum404 req)     $
+    emptyResponse
 
   where
 
-    --------------------------------------------------------------------------
-    enum404 out = do
-        is <- Streams.fromList html
+    enum404 req out = do
+        is <- Streams.fromList (html req)
         Streams.connect is out
         return out
 
-    --------------------------------------------------------------------------
-    html = map byteString [ "<!DOCTYPE html>\n"
-                          , "<html>\n"
-                          , "<head>\n"
-                          , "<title>Not found</title>\n"
-                          , "</head>\n"
-                          , "<body>\n"
-                          , "<code>No handler accepted \""
-                          , rqURI req
-                          , "\"</code>\n</body></html>"
-                          ]
+    html req = map byteString [ "<!DOCTYPE html>\n"
+                              , "<html>\n"
+                              , "<head>\n"
+                              , "<title>Not found</title>\n"
+                              , "</head>\n"
+                              , "<body>\n"
+                              , "<code>No handler accepted \""
+                              , rqURI req
+                              , "\"</code>\n</body></html>"
+                              ]
 
 
 
